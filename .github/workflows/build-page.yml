@@ -1,0 +1,64 @@
+name: Build and Deploy to Page Branch
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ 拉取仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2️⃣ 安装 Node.js 并自动缓存 yarn
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'yarn'
+
+      # 3️⃣ 安装依赖
+      - name: Install dependencies
+        working-directory: excalidraw-app
+        run: yarn install --frozen-lockfile
+
+      # 4️⃣ 构建项目
+      - name: Build
+        working-directory: excalidraw-app
+        run: yarn build
+
+      # 5️⃣ 部署到 page 分支
+      - name: Deploy to Page Branch
+        run: |
+          # 配置 Git
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          
+          # 创建临时目录存放构建产物
+          TEMP_DIR=$(mktemp -d)
+          cp -r excalidraw-app/build/* "$TEMP_DIR"
+          
+          # 检出 page 分支，如果不存在则创建 orphan 分支
+          if git show-ref --verify --quiet refs/heads/page; then
+            git checkout page
+          else
+            git checkout --orphan page
+            git rm -rf . || true
+          fi
+          
+          # 清理旧文件（保留 .git）并复制新产物
+          git rm -rf . || true
+          cp -r "$TEMP_DIR"/* .
+          rm -rf "$TEMP_DIR"
+          
+          # 提交更改（如果没有变化则跳过）
+          git add .
+          git diff --cached --quiet || git commit -m "Deploy to page branch"
+          
+          # 强制推送到 page 分支
+          git push origin page --force
